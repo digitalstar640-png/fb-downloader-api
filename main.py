@@ -1,13 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yt_dlp
 import requests
 import time
 
-app = FastAPI(title="Ultimate FB Downloader & Dual Transcriber API")
+app = FastAPI(title="Ultimate FB Downloader & Audio Upload Transcriber API")
 
-# CORS पॉलिसी ताकि ब्लॉगर वेबसाइट से रिक्वेस्ट ब्लॉक न हो
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,10 +18,10 @@ app.add_middleware(
 class URLRequest(BaseModel):
     url: str
 
-# अपनी AssemblyAI API Key यहाँ डालें (ऑडियो टू टेक्स्ट के लिए)
-ASSEMBLY_API_KEY = "ed9f452b687b44d1abaa7902cd1eb822"
+# अपनी AssemblyAI API Key यहाँ डालें
+ASSEMBLY_API_KEY = "YOUR_ASSed9f452b687b44d1abaa7902cd1eb822"
 
-# 1. वीडियो डाउनलोड लिंक निकालने का एंडपॉइंट
+# 1. वीडियो डाउनलोड लिंक
 @app.post("/api/download")
 def download_facebook_video(data: URLRequest):
     try:
@@ -42,7 +41,7 @@ def download_facebook_video(data: URLRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# 2. ऑप्शन A: पुराना फ्री फेसबुक सबटाइटल्स/कैप्शन स्क्रैपर
+# 2. फेसबुक कैप्शन स्क्रैपर
 @app.post("/api/transcript")
 def extract_fb_subtitles(data: URLRequest):
     try:
@@ -50,66 +49,60 @@ def extract_fb_subtitles(data: URLRequest):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(data.url, download=False)
             subtitles = info.get('subtitles') or info.get('automatic_captions')
-            if not subtitles: 
-                raise HTTPException(status_code=404, detail="इस वीडियो में कोई रेडीमेड कैप्शन नहीं मिले। कृपया 'AI Audio to Text' ऑप्शन यूज़ करें।")
-            
+            if not subtitles: raise HTTPException(status_code=404, detail="No captions found.")
             lang = 'en' if 'en' in subtitles else ('hi' if 'hi' in subtitles else list(subtitles.keys())[0])
             sub_info = subtitles[lang]
             json3_url = next((item['url'] for item in sub_info if item.get('ext') == 'json3'), sub_info[0]['url'])
-            
             sub_res = requests.get(json3_url)
             if sub_res.status_code == 200:
                 events = sub_res.json().get('events', [])
                 text_list = [seg.get('utf8', '').strip() for ev in events for seg in ev.get('segs', []) if seg.get('utf8', '').strip()]
-                full_transcript = " ".join(text_list)
-                if not full_transcript.strip(): raise HTTPException(status_code=404, detail="कैप्शन खाली मिले।")
-                return {"transcript": full_transcript}
-            else: 
-                raise HTTPException(status_code=400, detail="कैप्शन फ़ाइल लोड नहीं हो सकी।")
+                return {"transcript": " ".join(text_list)}
+            else: raise HTTPException(status_code=400, detail="Failed to fetch captions.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# 3. ऑप्शन B: नया एडवांस एआई (AI) ऑडियो टू टेक्स्ट कन्वर्टर
+# 3. फेसबुक वीडियो के लिंक से ऑडियो-टू-टेक्स्ट
 @app.post("/api/audio-to-text")
 def audio_to_text_transcript(data: URLRequest):
-    if not ASSEMBLY_API_KEY or ASSEMBLY_API_KEY == "YOUR_ASSEMBLYAI_API_KEY":
-        raise HTTPException(status_code=500, detail="सर्वर पर एआई API की (API Key) सेट नहीं है।")
-        
     try:
-        # वीडियो में से बेस्ट ऑडियो स्ट्रीम का लिंक निकालना
         ydl_opts = {'format': 'bestaudio', 'quiet': True, 'skip_download': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(data.url, download=False)
-            audio_url = info.get('url')
-        
-        if not audio_url:
-            raise HTTPException(status_code=400, detail="वीडियो से ऑडियो ट्रैक नहीं निकाला जा सका।")
-
-        # AssemblyAI को भेजना
-        headers = {"authorization": ASSEMBLY_API_KEY, "content-type": "application/json"}
-        transcript_request = {"audio_url": audio_url, "language_detection": True}
-        
-        response = requests.post("https://api.assemblyai.com/v2/transcript", json=transcript_request, headers=headers)
-        transcript_id = response.json().get("id")
-
-        if not transcript_id:
-            raise HTTPException(status_code=500, detail="एआई सर्वर टास्क शुरू करने में विफल रहा।")
-
-        # पोलिंग लूप (लंबे वीडियो के प्रोसेस होने का इंतज़ार)
-        polling_endpoint = f"https://api.assemblyai.com/v2/transcript/{transcript_id}"
-        attempts = 0
-        while attempts < 60:
-            polling_response = requests.get(polling_endpoint, headers=headers).json()
-            status = polling_response.get("status")
-
-            if status == "completed":
-                return {"transcript": polling_response.get("text")}
-            elif status == "error":
-                raise HTTPException(status_code=500, detail=f"AI एरर: {polling_response.get('error')}")
-            
-            time.sleep(6)
-            attempts += 1
-
-        raise HTTPException(status_code=408, detail="वीडियो बहुत लंबा है, प्रोसेसिंग में अधिक समय लग रहा है।")
+            audio_url = ydl.extract_info(data.url, download=False).get('url')
+        if not audio_url: raise HTTPException(status_code=400, detail="Audio link not found.")
+        return process_assemblyai(audio_url)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# 4. नया एंडपॉइंट: डायरेक्ट ऑडियो फ़ाइल अपलोड करके टेक्स्ट में बदलना
+@app.post("/api/upload-audio")
+async def upload_audio_and_transcribe(file: UploadFile = File(...)):
+    if not ASSEMBLY_API_KEY or ASSEMBLY_API_KEY == "YOUR_ASSEMBLYAI_API_KEY":
+        raise HTTPException(status_code=500, detail="API Key missing.")
+    try:
+        # फ़ाइल को सीधे AssemblyAI के सर्वर पर स्ट्रीम (Upload) करना
+        headers = {"authorization": ASSEMBLY_API_KEY}
+        upload_response = requests.post("https://api.assemblyai.com/v2/upload", headers=headers, data=file.file)
+        uploaded_url = upload_response.json().get("upload_url")
+        
+        if not uploaded_url:
+            raise HTTPException(status_code=500, detail="Audio upload failed.")
+            
+        return process_assemblyai(uploaded_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# AssemblyAI प्रोसेसिंग का कॉमन फ़ंक्शन
+def process_assemblyai(audio_source_url):
+    headers = {"authorization": ASSEMBLY_API_KEY, "content-type": "application/json"}
+    transcript_request = {"audio_url": audio_source_url, "language_detection": True}
+    response = requests.post("https://api.assemblyai.com/v2/transcript", json=transcript_request, headers=headers)
+    transcript_id = response.json().get("id")
+
+    if not transcript_id: raise HTTPException(status_code=500, detail="AI Task creation failed.")
+
+    while True:
+        res = requests.get(f"https://api.assemblyai.com/v2/transcript/{transcript_id}", headers=headers).json()
+        if res.get("status") == "completed": return {"transcript": res.get("text")}
+        elif res.get("status") == "error": raise HTTPException(status_code=500, detail=res.get("error"))
+        time.sleep(5)
