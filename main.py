@@ -19,7 +19,7 @@ class URLRequest(BaseModel):
     url: str
 
 # अपनी AssemblyAI API Key यहाँ डालें
-ASSEMBLY_API_KEY = "YOUR_ASSed9f452b687b44d1abaa7902cd1eb822"
+ASSEMBLY_API_KEY = "ed9f452b687b44d1abaa7902cd1eb822"
 
 # 1. वीडियो डाउनलोड लिंक
 @app.post("/api/download")
