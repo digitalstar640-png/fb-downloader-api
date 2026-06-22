@@ -20,7 +20,7 @@ class URLRequest(BaseModel):
     url: str
 
 # अपनी AssemblyAI API Key यहाँ डालें (ऑडियो टू टेक्स्ट के लिए)
-ASSEMBLY_API_KEY = "YOUR_ASSEMBLYAI_API_KEY"
+ASSEMBLY_API_KEY = "ed9f452b687b44d1abaa7902cd1eb822"
 
 # 1. वीडियो डाउनलोड लिंक निकालने का एंडपॉइंट
 @app.post("/api/download")
