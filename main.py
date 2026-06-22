@@ -77,7 +77,7 @@ def audio_to_text_transcript(data: URLRequest):
 # 4. नया एंडपॉइंट: डायरेक्ट ऑडियो फ़ाइल अपलोड करके टेक्स्ट में बदलना
 @app.post("/api/upload-audio")
 async def upload_audio_and_transcribe(file: UploadFile = File(...)):
-    if not ASSEMBLY_API_KEY or ASSEMBLY_API_KEY == "YOUR_ASSEMBLYAI_API_KEY":
+    if not ASSEMBLY_API_KEY or ASSEMBLY_API_KEY == "ed9f452b687b44d1abaa7902cd1eb822":
         raise HTTPException(status_code=500, detail="API Key missing.")
     try:
         # फ़ाइल को सीधे AssemblyAI के सर्वर पर स्ट्रीम (Upload) करना
